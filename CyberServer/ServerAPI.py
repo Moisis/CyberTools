@@ -1,6 +1,6 @@
 import socket
 
-from CyberTools.CyberServer.ServerAuth import ServerAuth
+from CyberTools.Modules.Authentication import ServerAuth
 
 
 class ServerAPI:
@@ -66,24 +66,7 @@ class ServerAPI:
 		elif command[0] == "authenticate":
 			# Authenticate a user
 			if len(command) == 2:
-				username = command[1]
-				print(f"Authenticating user: {username}")
-				password, challenge = self.auth.get_authentication_challenge(username)
-				if password and challenge:
-					client_socket.send(f"challenge {challenge}".encode('utf-8'))
-					response = client_socket.recv(1024).decode('utf-8')
-					answer = bytes.fromhex(response.split()[0])
-					tag = bytes.fromhex(response.split()[1])
-					nonce = bytes.fromhex(response.split()[2])
-					if self.auth.authenticate_user(username, challenge, answer, tag, nonce):
-						print("Authentication successful.")
-						client_socket.send("Authentication successful.".encode('utf-8'))
-					else:
-						print("Authentication failed.")
-						client_socket.send("Authentication failed.".encode('utf-8'))
-				else:
-					print("Authentication failed.")
-					client_socket.send("Authentication failed.".encode('utf-8'))
+				ServerAuth().authenticate_user(client_socket, command)
 			else:
 				print("Invalid command format. Usage: authenticate <username>")
 		else:

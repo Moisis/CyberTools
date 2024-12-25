@@ -4,13 +4,13 @@ import psycopg2
 class PostgresDB:
     def __init__(self, db_name, user, password, host="localhost", port=5432):
         """
-		Initialize the PostgresDB class.
-		:param db_name: Name of the database
-		:param user: Database user
-		:param password: Database password
-		:param host: Database host (default: localhost)
-		:param port: Database port (default: 5432)
-		"""
+        Initialize the PostgresDB class.
+        :param db_name: Name of the database
+        :param user: Database user
+        :param password: Database password
+        :param host: Database host (default: localhost)
+        :param port: Database port (default: 5432)
+        """
         self.db_name = db_name
         self.user = user
         self.password = password
