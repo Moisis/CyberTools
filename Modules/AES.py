@@ -1,6 +1,7 @@
 from Crypto.Cipher import AES
 from Crypto.Random import get_random_bytes
 
+
 class SymmetricEncryption:
     def __init__(self, key=get_random_bytes(16)):
         self.key = key

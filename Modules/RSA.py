@@ -1,6 +1,7 @@
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import PKCS1_OAEP
 
+
 class AsymmetricEncryption:
     def __init__(self):
         self.key = RSA.generate(2048)

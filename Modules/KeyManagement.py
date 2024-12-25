@@ -1,5 +1,3 @@
-import os
-
 class KeyManagement:
     @staticmethod
     def save_key(filename, key):

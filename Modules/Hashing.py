@@ -1,5 +1,6 @@
 import hashlib
 
+
 class Hashing:
     @staticmethod
     def hash_data(data):
