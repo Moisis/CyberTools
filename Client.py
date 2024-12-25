@@ -1,7 +1,8 @@
 import socket
 
-import CyberTools.Modules.AES as AES
-from CyberTools.Modules import hashing
+import Modules.AES as AES
+from Modules.Hashing import Hashing
+from Modules.Authentication import ClientAuth
 
 States = {
 	"Main": ["Register", "Auth"],
@@ -10,9 +11,12 @@ States = {
 	"Symmetric Encryption": ["Main"]
 }
 state = "Main"
+user = None
 
 
 def execute(action):
+	global user
+	global state
 	server_host = "127.0.0.1"  # Server host
 	server_port = 12345  # Server port
 
@@ -29,7 +33,7 @@ def execute(action):
 		# Implement Register
 		username = input("Enter username: ")
 		password = input("Enter password: ")
-		password = hashing.Hashing.hash_data(password)
+		password = Hashing.hash_data(password)
 		command = f"register {username} {password}"
 		client_socket.send(command.encode('utf-8'))
 		print("Registration command sent.")
@@ -38,30 +42,15 @@ def execute(action):
 		# Implement Auth
 		username = input("Enter username: ")
 		password = input("Enter password: ")
-		command = f"authenticate {username}"
-		client_socket.send(command.encode('utf-8'))
-		print("Authentication command sent.")
-
-		# Receive challenge from server
-		challenge_data = client_socket.recv(1024).decode('utf-8')
-		if challenge_data.startswith("challenge"):
-			challenge = challenge_data.split()[1]
-			print(f"Challenge received: {challenge}")
-			# Respond to the challenge (e.g., echoing the challenge for simplicity in testing)
-			key = hashing.Hashing.hash_data(password).encode('utf-8')[:16].ljust(16, b'\0')
-			answer, tag, nonce = AES.SymmetricEncryption(key).encrypt(challenge.encode('utf-8'))
-			answer = answer.hex()
-			tag = tag.hex()
-			nonce = nonce.hex()
-			response = f"{answer} {tag} {nonce}".encode('utf-8')
-
-			client_socket.send(response)
-
-			# Receive authentication result
-			auth_result = client_socket.recv(1024).decode('utf-8')
-			print(f"Server response: {auth_result}")
+		authentication_status = ClientAuth.authenticate_user(username, password, client_socket)
+		if authentication_status:
+			user = username
+			print("Authentication successful.")
+			print(f"Welcome {username}")
 		else:
-			print("Failed to receive challenge or invalid response from server.")
+			user = None
+			state = "Main"
+			print("Authentication failed.")
 
 	elif action == "Symmetric Encryption":
 		# Implement Symmetric Encryption
