@@ -1,20 +1,23 @@
 import ast
+from dotenv import load_dotenv
 import os
 
-from CyberTools.CyberServer.Database import PostgresDB
-import CyberTools.Modules.AES as AES
-import CyberTools.Modules.Hashing as Hashing
+from CyberServer.Database import PostgresDB
+import Modules.AES as AES
+import Modules.Hashing as Hashing
 
 
 class ServerAuth:
 	def __init__(self):
+		# Load environment variables
+		load_dotenv("../.env")
 		# Database credentials
 		self.db_config = {
-			"db_name": "cybertools",
-			"user": "postgres",
-			"password": "karim2510",
-			"host": "localhost",
-			"port": 5432
+			"db_name": os.getenv("DB_NAME"),
+			"user": os.getenv("USER"),
+			"password": os.getenv("PASSWORD"),
+			"host": os.getenv("HOST"),
+			"port": os.getenv("PORT")
 		}
 
 		# Initialize and connect to the database
