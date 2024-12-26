@@ -100,4 +100,7 @@ while True:
 		print("Invalid selection.")
 		continue
 	state = States[state][selection - 1]
+	if state == "Main":
+		state = "Main"
+		continue
 	execute(state)
