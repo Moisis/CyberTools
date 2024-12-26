@@ -53,27 +53,30 @@ class ServerAPI:
 				break
 
 	def handle_user_command(self, data, client_socket):
-		command = data.split()
-		if command[0] == "exit":
-			self.close_server()
-		elif command[0] == "register":
-			# Register a new user
-			if len(command) == 3:
-				username = command[1]
-				password = command[2]
-				print(f"Registering new user: {username}")
-				self.auth.register_user(username, password)
+		try:
+			command = data.split()
+			if command[0] == "exit":
+				self.close_server()
+			elif command[0] == "register":
+				# Register a new user
+				if len(command) == 3:
+					username = command[1]
+					password = command[2]
+					print(f"Registering new user: {username}")
+					self.auth.register_user(username, password)
+				else:
+					print("Invalid command format. Usage: register <username> <password>")
+			elif command[0] == "authenticate":
+				# Authenticate a user
+				if len(command) == 2:
+					ServerAuth().authenticate_user(client_socket, command)
+				else:
+					print("Invalid command format. Usage: authenticate <username>")
 			else:
-				print("Invalid command format. Usage: register <username> <password>")
-		elif command[0] == "authenticate":
-			# Authenticate a user
-			if len(command) == 2:
-				ServerAuth().authenticate_user(client_socket, command)
-			else:
-				print("Invalid command format. Usage: authenticate <username>")
-		else:
-			print(f"Command '{command[0]}' not recognized.")
-
+				print(f"Command '{command[0]}' not recognized.")
+		except Exception as e:
+			print(f"Error handling command: {e}")
+			client_socket.send(b"Error processing command.\n")
 	def close_server(self):
 		"""Close the server socket."""
 		self.server_socket.close()
