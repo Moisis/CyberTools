@@ -1,2 +1,3 @@
 pycryptodome
 psycopg2
+python-dotenv
