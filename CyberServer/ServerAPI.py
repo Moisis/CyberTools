@@ -13,19 +13,22 @@ class ServerAPI:
 		self.port = port
 		self.auth = ServerAuth()
 
-		# Create a socket object
-		self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+		try:
+			# Create a socket object
+			self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-		# Bind the socket to the host and port
-		self.server_socket.bind((self.host, self.port))
-		print(f"Server started on {self.host}:{self.port}")
+			# Bind the socket to the host and port
+			self.server_socket.bind((self.host, self.port))
+			print(f"Server started on {self.host}:{self.port}")
 
-		# Start listening for incoming connections
-		self.server_socket.listen(5)  # Can handle up to 5 connections in the queue
-		print("Waiting for a connection...")
+			# Start listening for incoming connections
+			self.server_socket.listen(5)  # Can handle up to 5 connections in the queue
+			print("Waiting for a connection...")
 
-		# Handle incoming connections
-		self.handle_connections()
+			# Handle incoming connections
+			self.handle_connections()
+		except socket.error as e:
+			print(f"socket error during init: {e}")
 
 	def handle_connections(self):
 		"""Handle incoming client connections."""
