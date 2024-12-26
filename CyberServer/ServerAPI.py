@@ -1,7 +1,6 @@
 import socket
 
-from CyberTools.Modules.Authentication import ServerAuth
-
+from Modules.Authentication import ServerAuth
 
 class ServerAPI:
 	def __init__(self, host="127.0.0.1", port=12345):
