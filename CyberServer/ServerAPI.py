@@ -1,7 +1,13 @@
+import json
 import socket
+import string
+from secrets import choice
 
 import threading
+from Crypto.PublicKey import RSA
 
+from CyberServer import EmailSender
+from Modules import Hashing, KeyManagement
 from Modules.Authentication import ServerAuth
 
 
@@ -12,6 +18,7 @@ class ServerAPI:
 		:param host: Host address to bind the server (default: 127.0.0.1)
 		:param port: Port to listen on (default: 12345)
 		"""
+        
         self.host = host
         self.port = port
         self.auth = ServerAuth()
@@ -34,30 +41,6 @@ class ServerAPI:
         except socket.error as e:
             print(f"socket error during init: {e}")
 
-    def handle_connections(self):
-        """Handle incoming client connections."""
-        while True:
-            try:
-                if not self.client_connected:
-                    # Accept a new connection
-                    client_socket, client_address = self.server_socket.accept()
-                    print(f"Connection established with {client_address}")
-                    self.client_connected = True
-
-                # Receive data from the client
-                data = client_socket.recv(1024).decode('utf-8')  # Buffer size is 1024 bytes
-                print(f"Received from client: {data}")
-
-                self.handle_user_command(data, client_socket)
-
-            # Close the client connection
-            # client_socket.close()
-            # print(f"Connection with {client_address} closed.")
-
-            except Exception as e:
-                print(f"An error occurred: {e}")
-                break
-
     def handle_client(self, client_socket, client_address):
         """Handle communication with a connected client."""
         print(f"Client {client_address} connected.")
@@ -75,36 +58,69 @@ class ServerAPI:
             client_socket.close()
             print(f"Connection with {client_address} closed.")
 
-    def handle_user_command(self, data, client_socket, client_address):
-        try:
-            command = data.split()
-            if command[0] == "exit":
-                self.close_server()
-            elif command[0] == "register":
-                # Register a new user
-                if len(command) == 3:
-                    username = command[1]
-                    password = command[2]
-                    print(f"Registering new user: {username}")
-                    self.auth.register_user(username, password)
-                else:
-                    print("Invalid command format. Usage: register <username> <password>")
-            elif command[0] == "authenticate":
-                # Authenticate a user
-                if len(command) == 2:
-                    if ServerAuth().authenticate_user(client_socket, command):
-                        self.clients[command[1]] = (client_socket, client_address)
-                else:
-                    print("Invalid command format. Usage: authenticate <username>")
-            elif command[0] == "disconnect":
-                pass
-            elif command[0] == "connect":
-                pass
-            else:
-                print(f"Command '{command[0]}' not recognized.")
-        except Exception as e:
-            print(f"Error handling command: {e}")
-            client_socket.send(b"Error processing command.\n")
+	def handle_user_command(self, data, client_socket):
+		command = json.loads(data)
+		if command.get("action") == "exit":
+			self.close_server()
+		elif command.get("action") == "register":
+			self.handle_user_registration(data, client_socket)
+		elif command.get("action") == "authenticate":
+			user_name = command.get("username")
+			# Authenticate a user
+			ServerAuth().authenticate_user(client_socket, user_name)
+		else:
+			print(f"Command '{command[0]}' not recognized.")
+
+	def handle_user_registration(self, data, client_socket):
+		"""Handle user registration."""
+		try:
+			command = json.loads(data)
+			if command.get("action") == "register":
+				username = command["username"]
+				password = command["password"]
+				email = command["email"]
+				client_public_key = command["public_key"]
+				device_id = command["device_id"]
+
+				code = self.generate_secure_code()
+				EmailSender.send_email(email, code)
+				print(f"Registration code sent to {email}")
+
+				# add the code to the start of the public key and hash it
+				public_key_with_code = code + client_public_key
+				public_key_with_code_hashed = Hashing.hash_data(public_key_with_code.encode('utf-8'))
+
+				# Send the code concatenated with the public key hash to the client
+				response = json.dumps({"public_key_hash": public_key_with_code_hashed})
+				client_socket.send(response.encode('utf-8'))
+
+				# receive the code from the user
+				encrypted_data = client_socket.recv(1024)
+				encrypted_data = encrypted_data.decode('utf-8')
+				server_private_key = KeyManagement.get_rsa_private_key('server@secure.org')
+				client_public_key_obj = RSA.import_key(client_public_key)
+				decrypted_data = KeyManagement.double_decrypt(encrypted_data, server_private_key, client_public_key_obj)
+				decrypted_data = decrypted_data.decode('utf-8')
+				print('decrypted code at the server:', decrypted_data)
+
+				if decrypted_data == code:
+					# Register the user
+					self.auth.register_user(username, password, email, client_public_key, device_id)
+					print("User registered successfully.")
+				else:
+					print("Registration code mismatch. Registration failed.")
+			else:
+				print("Invalid command action.")
+		except json.JSONDecodeError:
+			print("Invalid JSON format received.")
+
+	@staticmethod
+	def generate_secure_code(length=8):
+		# Define the characters to choose from for better entropy
+		characters = string.ascii_letters + string.digits
+		# Generate the code by cryptographically secure random selection
+		code = ''.join(choice(characters) for _ in range(length))
+		return code
 
     def close_server(self):
         """Close the server socket."""
@@ -127,3 +143,4 @@ class ServerAPI:
 if __name__ == "__main__":
     server = ServerAPI()
     server.start()
+

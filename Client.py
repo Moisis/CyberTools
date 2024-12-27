@@ -1,7 +1,9 @@
+import json
 import socket
 
 import Modules.AES as AES
-from Modules.Hashing import Hashing
+from Modules import KeyManagement
+import Modules.Hashing as Hashing
 from Modules.Authentication import ClientAuth
 
 States = {
@@ -33,20 +35,71 @@ def execute(action):
         print(f"Failed to connect to the server: {e}")
         return
 
+def execute(action):
+    global user
+    global state
+    server_host = "127.0.0.1"  # Server host
+    server_port = 12345  # Server port
+
+    # Connect to the server
+    try:
+        client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client_socket.connect((server_host, server_port))
+        print("Connected to the server.")
+    except Exception as e:
+        print(f"Failed to connect to the server: {e}")
+        return
+
     if action == "Register":
         # Implement Register
         username = input("Enter username: ").strip()
         if not username:
             print("Username cannot be empty")
             return
+        email = input("Enter email: ").strip()
+        if not email:
+          print("Email cannot be empty")
+          return
         password = input("Enter password: ").strip()
         if not password:
             print("Password cannot be empty")
             return
+        password = Hashing.hash_data(password.encode('utf-8'))
+        public_key = KeyManagement.get_rsa_public_key(email).export_key().decode('utf-8')
+        device_id = ClientAuth.get_device_identifier()
 
-        password = Hashing.hash_data(password)
-        command = f"register {username} {password}"
+        command_data = {
+            "action": "register",
+            "username": username,
+            "password": password,
+            "email": email,
+            "public_key": public_key,
+            "device_id": device_id
+        }
+
+        command = json.dumps(command_data)
         client_socket.send(command.encode('utf-8'))
+
+        # receive your key concatenated with random number then hashed
+        public_key_hashed_with_code_from_server = client_socket.recv(1024).decode('utf-8')
+        public_key_hashed_with_code_from_server = json.loads(public_key_hashed_with_code_from_server)['public_key_hash']
+        # enter the code you received on your email
+        code = input("Enter the code you received on your email: ")
+
+        # add the code to the start of your public key and hash it
+        public_key_with_code_local = code + public_key
+        public_key_with_code_local_hashed = Hashing.hash_data(public_key_with_code_local.encode('utf-8'))
+
+        if public_key_hashed_with_code_from_server == public_key_with_code_local_hashed:
+            # send the code to the server encrypted with your private key and the server public key
+            server_public_key = KeyManagement.get_rsa_public_key('server@secure.org')
+            private_key = KeyManagement.get_rsa_private_key(email)
+            encrypted_code = KeyManagement.double_encrypt(code.encode('utf-8'), private_key, server_public_key)
+            client_socket.send(encrypted_code.encode('utf-8'))
+            print("Registration successful.")
+        else:
+            print("Your connection is not secure. Try again from another network.")
+
         print("Registration command sent.")
 
     elif action == "Auth":
@@ -59,7 +112,6 @@ def execute(action):
         if not password:
             print("Password cannot be empty")
             return
-
         authentication_status = ClientAuth.authenticate_user(username, password, client_socket)
         if authentication_status:
             user = username
@@ -73,7 +125,6 @@ def execute(action):
     elif action == "Show list of online people":
         # TODO: implement logic to find connected clients on various threads
         print("list of friends goes here")
-
     else:
         print("Invalid state.")
         return
