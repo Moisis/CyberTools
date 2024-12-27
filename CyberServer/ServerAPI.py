@@ -1,5 +1,12 @@
+import json
 import socket
+import string
+from secrets import choice
 
+from Crypto.PublicKey import RSA
+
+from CyberServer import EmailSender
+from Modules import Hashing, KeyManagement
 from Modules.Authentication import ServerAuth
 
 class ServerAPI:
@@ -50,26 +57,68 @@ class ServerAPI:
 				break
 
 	def handle_user_command(self, data, client_socket):
-		command = data.split()
-		if command[0] == "exit":
+		command = json.loads(data)
+		if command.get("action") == "exit":
 			self.close_server()
-		elif command[0] == "register":
-			# Register a new user
-			if len(command) == 3:
-				username = command[1]
-				password = command[2]
-				print(f"Registering new user: {username}")
-				self.auth.register_user(username, password)
-			else:
-				print("Invalid command format. Usage: register <username> <password>")
-		elif command[0] == "authenticate":
+		elif command.get("action") == "register":
+			self.handle_user_registration(data, client_socket)
+		elif command.get("action") == "authenticate":
+			user_name = command.get("username")
 			# Authenticate a user
-			if len(command) == 2:
-				ServerAuth().authenticate_user(client_socket, command)
-			else:
-				print("Invalid command format. Usage: authenticate <username>")
+			ServerAuth().authenticate_user(client_socket, user_name)
 		else:
 			print(f"Command '{command[0]}' not recognized.")
+
+	def handle_user_registration(self, data, client_socket):
+		"""Handle user registration."""
+		try:
+			command = json.loads(data)
+			if command.get("action") == "register":
+				username = command["username"]
+				password = command["password"]
+				email = command["email"]
+				client_public_key = command["public_key"]
+				device_id = command["device_id"]
+
+				code = self.generate_secure_code()
+				EmailSender.send_email(email, code)
+				print(f"Registration code sent to {email}")
+
+				# add the code to the start of the public key and hash it
+				public_key_with_code = code + client_public_key
+				public_key_with_code_hashed = Hashing.hash_data(public_key_with_code.encode('utf-8'))
+
+				# Send the code concatenated with the public key hash to the client
+				response = json.dumps({"public_key_hash": public_key_with_code_hashed})
+				client_socket.send(response.encode('utf-8'))
+
+				# receive the code from the user
+				encrypted_data = client_socket.recv(1024)
+				encrypted_data = encrypted_data.decode('utf-8')
+				server_private_key = KeyManagement.get_rsa_private_key('server@secure.org')
+				client_public_key_obj = RSA.import_key(client_public_key)
+				decrypted_data = KeyManagement.double_decrypt(encrypted_data, server_private_key, client_public_key_obj)
+				decrypted_data = decrypted_data.decode('utf-8')
+				print('decrypted code at the server:', decrypted_data)
+
+				if decrypted_data == code:
+					# Register the user
+					self.auth.register_user(username, password, email, client_public_key, device_id)
+					print("User registered successfully.")
+				else:
+					print("Registration code mismatch. Registration failed.")
+			else:
+				print("Invalid command action.")
+		except json.JSONDecodeError:
+			print("Invalid JSON format received.")
+
+	@staticmethod
+	def generate_secure_code(length=8):
+		# Define the characters to choose from for better entropy
+		characters = string.ascii_letters + string.digits
+		# Generate the code by cryptographically secure random selection
+		code = ''.join(choice(characters) for _ in range(length))
+		return code
 
 	def close_server(self):
 		"""Close the server socket."""

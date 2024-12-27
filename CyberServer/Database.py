@@ -34,11 +34,12 @@ class PostgresDB:
         except psycopg2.Error as e:
             print(f"Error connecting to the database: {e}")
 
-    def insert_user(self, username, password):
+    def insert_user(self, username, password, email, public_key, device_id):
         """Insert a new user into the 'users' table."""
         try:
-            insert_query = "INSERT INTO users (username, password) VALUES (%s, %s);"
-            self.cursor.execute(insert_query, (username, password))
+            insert_query = ("INSERT INTO users (username, password, email, public_key, device_id) VALUES (%s, %s, %s, "
+                            "%s, %s);")
+            self.cursor.execute(insert_query, (username, password, email, public_key, device_id))
             self.connection.commit()
             print(f"User '{username}' added successfully.")
         except psycopg2.Error as e:

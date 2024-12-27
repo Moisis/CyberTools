@@ -1,4 +1,7 @@
 import ast
+import json
+import uuid
+
 from dotenv import load_dotenv
 import os
 
@@ -24,20 +27,19 @@ class ServerAuth:
 		self.db = PostgresDB(**self.db_config)
 		self.db.connect()
 
-	def register_user(self, username, password):
+	def register_user(self, username, password, email, public_key, device_id):
 		"""Register a new user."""
-		self.db.insert_user(username, password)
+		self.db.insert_user(username, password, email, public_key, device_id)
 
-	def authenticate_user(self, client_socket, command):
-		username = command[1]
-		print(f"Authenticating user: {username}")
-		password, challenge = self.get_authentication_challenge(username)
+	def authenticate_user(self, client_socket, user_name):
+		print(f"Authenticating user: {user_name}")
+		password, challenge = self.get_authentication_challenge(user_name)
 		if password and challenge:
 			client_socket.send(f"challenge {challenge}".encode('utf-8'))
 			response = client_socket.recv(1024).decode('utf-8')
 			answer = bytes.fromhex(response.split()[0])
 			nonce = bytes.fromhex(response.split()[2])
-			if self.verify_authentication_challenge(username, challenge, answer, nonce):
+			if self.verify_authentication_challenge(user_name, challenge, answer, nonce):
 				print("Authentication successful.")
 				client_socket.send("Authentication successful".encode('utf-8'))
 			else:
@@ -104,7 +106,11 @@ class ClientAuth:
 	@staticmethod
 	def authenticate_user(username, password, client_socket):
 		"""Authenticate a user by sending the username and password to the server."""
-		command = f"authenticate {username}"
+		command_data = {
+			"action": "authenticate",
+			"username": username
+		}
+		command = json.dumps(command_data)
 		client_socket.send(command.encode('utf-8'))
 		print("Authentication command sent.")
 
@@ -114,7 +120,7 @@ class ClientAuth:
 			challenge = challenge_data.split()[1]
 			print(f"Challenge received: {challenge}")
 			# Respond to the challenge (e.g., echoing the challenge for simplicity in testing)
-			key = Hashing.Hashing.hash_data(password).encode('utf-8')[:16].ljust(16, b'\0')
+			key = Hashing.hash_data(password.encode('utf-8')).encode('utf-8')[:16].ljust(16, b'\0')
 			answer, tag, nonce = AES.SymmetricEncryption(key).encrypt(challenge.encode('utf-8'))
 			answer = answer.hex()
 			tag = tag.hex()
@@ -130,3 +136,22 @@ class ClientAuth:
 		else:
 			print("Failed to receive challenge or invalid response from server.")
 			return False
+
+	@staticmethod
+	def get_device_identifier():
+		"""Generate a unique identifier for the device using mac address with a random number and save it
+		to file this_device_id."""
+
+		if not os.path.exists("this_device_id"):
+			# generate a unique identifier for the device using mac address and a random number
+			mac_address = uuid.getnode()
+			random_number = os.urandom(8).hex()
+			device_id = f"{mac_address}_{random_number}"
+			# hash the device_id
+			hashed_device_id = Hashing.hash_data(device_id.encode('utf-8'))
+			with open("this_device_id", "w") as f:
+				f.write(hashed_device_id)
+		else:
+			with open("this_device_id", "r") as f:
+				hashed_device_id = f.read()
+		return hashed_device_id
