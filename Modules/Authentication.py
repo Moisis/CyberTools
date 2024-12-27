@@ -14,10 +14,10 @@ class ServerAuth:
 		# Database credentials
 		self.db_config = {
 			"db_name": os.getenv("DB_NAME"),
-			"user": os.getenv("USER"),
-			"password": os.getenv("PASSWORD"),
-			"host": os.getenv("HOST"),
-			"port": os.getenv("PORT")
+			"user": os.getenv("DB_USER"),
+			"password": os.getenv("DB_PASSWORD"),
+			"host": os.getenv("DB_HOST"),
+			"port": os.getenv("DB_PORT")
 		}
 
 		# Initialize and connect to the database
