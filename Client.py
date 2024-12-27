@@ -10,12 +10,14 @@ States = {
     "Main": ["Register", "Auth"],
     "Register": ["Main"],
     "Auth": ["Show list of online people", "Main"],
-    "Show list of online people": ["Main"]
+    "Show list of online people": ["Chat", "Back"],
+    "Chat": []
 }
 state = "Main"
 user = None
 connected = False
 client_socket = None
+
 def execute(action):
     global user
     global state
@@ -35,34 +37,22 @@ def execute(action):
         print(f"Failed to connect to the server: {e}")
         return
 
-def execute(action):
-    global user
-    global state
-    server_host = "127.0.0.1"  # Server host
-    server_port = 12345  # Server port
-
-    # Connect to the server
-    try:
-        client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        client_socket.connect((server_host, server_port))
-        print("Connected to the server.")
-    except Exception as e:
-        print(f"Failed to connect to the server: {e}")
-        return
-
     if action == "Register":
         # Implement Register
         username = input("Enter username: ").strip()
         if not username:
             print("Username cannot be empty")
+            state = "Main"
             return
         email = input("Enter email: ").strip()
         if not email:
           print("Email cannot be empty")
+          state = "Main"
           return
         password = input("Enter password: ").strip()
         if not password:
             print("Password cannot be empty")
+            state = "Main"
             return
         password = Hashing.hash_data(password.encode('utf-8'))
         public_key = KeyManagement.get_rsa_public_key(email).export_key().decode('utf-8')
@@ -107,10 +97,12 @@ def execute(action):
         username = input("Enter username: ").strip()
         if not username:
             print("Username cannot be empty")
+            state = "Main"
             return
         password = input("Enter password: ").strip()
         if not password:
             print("Password cannot be empty")
+            state = "Main"
             return
         authentication_status = ClientAuth.authenticate_user(username, password, client_socket)
         if authentication_status:
@@ -123,8 +115,43 @@ def execute(action):
             print("Authentication failed.")
 
     elif action == "Show list of online people":
-        # TODO: implement logic to find connected clients on various threads
-        print("list of friends goes here")
+        command_data = {
+            "action": "list",
+        }
+        client_socket.send(json.dumps(command_data).encode('utf-8'))
+        print(client_socket.recv(1024).decode('utf-8'))
+    elif action == "Back":
+        state = "Auth"
+    elif action == "Chat":
+        username = input("Enter username you want to chat with:").strip()
+        if not username:
+            print("Username cannot be empty")
+            state = "Show list of online people"
+            return
+        command_data = {
+            "action": "chat",
+            "username": username
+        }
+        client_socket.send(json.dumps(command_data).encode('utf-8'))
+        print("type :q if you want to exit")
+        while True:
+            msg = input("Enter your message:")
+            client_socket.send(msg.encode('utf-8'))
+            if msg == ":q":
+                break
+            print("Waiting for response....")
+            recv_msg = client_socket.recv(1024).decode('utf-8')
+            if recv_msg == ":q":
+                print("the opposite end terminated the chat".encode('utf-8'))
+                break
+            print(recv_msg)
+
+    elif action == "Exit":
+        command_data = {
+            "action": "exit",
+        }
+        client_socket.send(json.dumps(command_data).encode('utf-8'))
+        return
     else:
         print("Invalid state.")
         return
@@ -154,6 +181,7 @@ while True:
     selection = input("Selection: ")
 
     if selection == "0":
+        execute("Exit")
         break
     try:
         selection = int(selection)
