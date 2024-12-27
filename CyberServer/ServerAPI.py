@@ -1,5 +1,7 @@
 import socket
 
+import threading
+
 from Modules.Authentication import ServerAuth
 
 
@@ -14,6 +16,7 @@ class ServerAPI:
         self.port = port
         self.auth = ServerAuth()
         self.client_connected = False
+        self.clients = {}
         try:
             # Create a socket object
             self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -27,7 +30,7 @@ class ServerAPI:
             print("Waiting for a connection...")
 
             # Handle incoming connections
-            self.handle_connections()
+            # self.handle_connections()
         except socket.error as e:
             print(f"socket error during init: {e}")
 
@@ -55,7 +58,24 @@ class ServerAPI:
                 print(f"An error occurred: {e}")
                 break
 
-    def handle_user_command(self, data, client_socket):
+    def handle_client(self, client_socket, client_address):
+        """Handle communication with a connected client."""
+        print(f"Client {client_address} connected.")
+        try:
+            while True:
+                data = client_socket.recv(1024).decode('utf-8')
+                if not data:
+                    print(f"Client {client_address} disconnected.")
+                    break
+                print(f"Received from {client_address}: {data}")
+                self.handle_user_command(data, client_socket, client_address)
+        except Exception as e:
+            print(f"Error with client {client_address}: {e}")
+        finally:
+            client_socket.close()
+            print(f"Connection with {client_address} closed.")
+
+    def handle_user_command(self, data, client_socket, client_address):
         try:
             command = data.split()
             if command[0] == "exit":
@@ -72,9 +92,14 @@ class ServerAPI:
             elif command[0] == "authenticate":
                 # Authenticate a user
                 if len(command) == 2:
-                    ServerAuth().authenticate_user(client_socket, command)
+                    if ServerAuth().authenticate_user(client_socket, command):
+                        self.clients[command[1]] = (client_socket, client_address)
                 else:
                     print("Invalid command format. Usage: authenticate <username>")
+            elif command[0] == "disconnect":
+                pass
+            elif command[0] == "connect":
+                pass
             else:
                 print(f"Command '{command[0]}' not recognized.")
         except Exception as e:
@@ -86,9 +111,19 @@ class ServerAPI:
         self.server_socket.close()
         print("Server has been closed.")
 
+    def start(self):
+        """Accept and handle multiple client connections."""
+        try:
+            while True:
+                client_socket, client_address = self.server_socket.accept()
+                client_thread = threading.Thread(target=self.handle_client, args=(client_socket, client_address))
+                client_thread.start()
+        except KeyboardInterrupt:
+            print("\nShutting down the server...")
+        finally:
+            self.close_server()
 
-try:
+
+if __name__ == "__main__":
     server = ServerAPI()
-except KeyboardInterrupt:
-    print("\nShutting down the server...")
-    server.close_server()
+    server.start()
