@@ -40,9 +40,11 @@ class ServerAuth:
 			if self.verify_authentication_challenge(username, challenge, answer, nonce):
 				print("Authentication successful.")
 				client_socket.send("Authentication successful".encode('utf-8'))
+				return True
 			else:
 				print("Authentication failed.")
 				client_socket.send("Authentication failed".encode('utf-8'))
+				return False
 		else:
 			print("Authentication failed.")
 			client_socket.send("Authentication failed.".encode('utf-8'))
