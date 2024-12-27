@@ -9,12 +9,31 @@ from Modules.Authentication import ClientAuth
 States = {
     "Main": ["Register", "Auth"],
     "Register": ["Main"],
-    "Auth": ["Symmetric Encryption", "Main"],
-    "Symmetric Encryption": ["Main"]
+    "Auth": ["Show list of online people", "Main"],
+    "Show list of online people": ["Main"]
 }
 state = "Main"
 user = None
+connected = False
+client_socket = None
+def execute(action):
+    global user
+    global state
+    global connected
+    global client_socket
+    server_host = "127.0.0.1"  # Server host
+    server_port = 12345  # Server port
 
+    # Connect to the server
+    try:
+        if not connected:
+            client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client_socket.connect((server_host, server_port))
+            print("Connected to the server.")
+            connected = True
+    except Exception as e:
+        print(f"Failed to connect to the server: {e}")
+        return
 
 def execute(action):
     global user
@@ -33,9 +52,18 @@ def execute(action):
 
     if action == "Register":
         # Implement Register
-        username = input("Enter username: ")
-        email = input("Enter email: ")
-        password = input("Enter password: ")
+        username = input("Enter username: ").strip()
+        if not username:
+            print("Username cannot be empty")
+            return
+        email = input("Enter email: ").strip()
+        if not email:
+          print("Email cannot be empty")
+          return
+        password = input("Enter password: ").strip()
+        if not password:
+            print("Password cannot be empty")
+            return
         password = Hashing.hash_data(password.encode('utf-8'))
         public_key = KeyManagement.get_rsa_public_key(email).export_key().decode('utf-8')
         device_id = ClientAuth.get_device_identifier()
@@ -76,8 +104,14 @@ def execute(action):
 
     elif action == "Auth":
         # Implement Auth
-        username = input("Enter username: ")
-        password = input("Enter password: ")
+        username = input("Enter username: ").strip()
+        if not username:
+            print("Username cannot be empty")
+            return
+        password = input("Enter password: ").strip()
+        if not password:
+            print("Password cannot be empty")
+            return
         authentication_status = ClientAuth.authenticate_user(username, password, client_socket)
         if authentication_status:
             user = username
@@ -88,16 +122,9 @@ def execute(action):
             state = "Main"
             print("Authentication failed.")
 
-    elif action == "Symmetric Encryption":
-        # Implement Symmetric Encryption
-        module = AES.SymmetricEncryption()
-        messages = get_messages()
-        for message in messages:
-            ciphertext, tag, nonce = module.encrypt(message.encode())
-            print(f"Encrypted message: {ciphertext.hex()}")
-            print(f"Tag: {tag.hex()}")
-            plaintext = module.decrypt(ciphertext, tag)
-            print(f"Decrypted message: {plaintext.decode()}")
+    elif action == "Show list of online people":
+        # TODO: implement logic to find connected clients on various threads
+        print("list of friends goes here")
     else:
         print("Invalid state.")
         return
@@ -136,4 +163,7 @@ while True:
         print("Invalid selection.")
         continue
     state = States[state][selection - 1]
+    if state == "Main":
+        state = "Main"
+        continue
     execute(state)
