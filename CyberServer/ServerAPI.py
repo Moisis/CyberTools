@@ -47,11 +47,9 @@ class ServerAPI:
         try:
             while True:
                 data = client_socket.recv(1024).decode('utf-8')
-                if not data:
-                    print(f"Client {client_address} disconnected.")
-                    break
-                print(f"Received from {client_address}: {data}")
-                self.handle_user_command(data, client_socket)
+                if data:
+                    print(f"Received from {client_address}: {data}")
+                    self.handle_user_command(data, client_socket)
         except Exception as e:
             print(f"Error with client {client_address}: {e}")
         finally:
@@ -61,13 +59,39 @@ class ServerAPI:
     def handle_user_command(self, data, client_socket):
         command = json.loads(data)
         if command.get("action") == "exit":
-            self.close_server()
+            res = dict((v, k) for k, v in self.clients.items())
+            del self.clients[res[client_socket]]
+            print(f"client {res[client_socket]} closed")
         elif command.get("action") == "register":
             self.handle_user_registration(data, client_socket)
         elif command.get("action") == "authenticate":
             user_name = command.get("username")
             # Authenticate a user
-            ServerAuth().authenticate_user(client_socket, user_name)
+            if ServerAuth().authenticate_user(client_socket, user_name):
+                self.clients[user_name] = client_socket
+        elif command.get("action") == "chat":
+            reciever = command.get("username")
+            if reciever in self.clients:
+                client_socket.send(f"connection established with {reciever}".encode('utf-8'))
+            while True:
+                msg = client_socket.recv(1024).decode()
+                if msg == ":q":
+                    self.clients[reciever].send("the opposite end terminated the chat".encode('utf-8'))
+                    break
+                self.clients[reciever].send(msg.encode('utf-8'))
+                recv_msg = self.clients[reciever].recv(1024).decode('utf-8')
+                client_socket.send(recv_msg.encode('utf_8'))
+        elif command.get("action") == "list":
+            clients_list = []
+            for key, value in self.clients.items():
+                if value != client_socket:
+                    clients_list.append(key)
+            print(clients_list)
+            print(self.clients)
+            if clients_list:
+                client_socket.send('/n'.join(clients_list).encode('utf-8'))
+            else:
+                client_socket.send('no one is online now, check again later'.encode('utf-8'))
         else:
             print(f"Command '{command[0]}' not recognized.")
 
@@ -122,11 +146,6 @@ class ServerAPI:
         # Generate the code by cryptographically secure random selection
         code = ''.join(choice(characters) for _ in range(length))
         return code
-
-    def close_server(self):
-        """Close the server socket."""
-        self.server_socket.close()
-        print("Server has been closed.")
 
     def start(self):
         """Accept and handle multiple client connections."""
