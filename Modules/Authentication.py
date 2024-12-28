@@ -60,7 +60,7 @@ class ServerAuth:
 		password = self.db.get_user_password(username)
 		if password is None:
 			print("User not found.")
-			return None, None, None
+			return None, None
 
 		# Generate a random number
 		random_number = os.urandom(16)  # Generate a secure random 16-byte number
@@ -82,15 +82,16 @@ class ServerAuth:
 			return False
 
 		try:
-			# Create AES cipher object using the password as the key
-			# Ensure the password is exactly 16 bytes (padding or truncating if necessary)
 			key = password.encode('utf-8')
-			key = key[:16].ljust(16, b'\0')  # Pad or truncate the key to 16 bytes
+			key = key[:16].ljust(16, b'\0')
 
-			# Decrypt the challenge response
-			cipher = AES.SymmetricEncryption(key)  # Using ECB mode for simplicity
+			cipher = AES.SymmetricEncryption(key)
 			decrypted_challenge = cipher.decrypt(challenge_response, nonce=nonce)
-			decrypted_challenge = ast.literal_eval(decrypted_challenge.decode('utf-8'))
+			try:
+				# precaution to prevent string malformation over the network
+				decrypted_challenge = ast.literal_eval(decrypted_challenge.decode('utf-8'))
+			except ValueError:
+				pass
 			return challenge == decrypted_challenge
 
 		except Exception as e:
