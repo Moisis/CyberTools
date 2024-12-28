@@ -152,7 +152,6 @@ class ServerAPI:
                 command["nonce"]
             ))
             self.db.connection.commit()
-            # TODO: Update database with
 
             client_socket.send("Text uploaded successfully".encode('utf-8'))
 
@@ -168,7 +167,6 @@ class ServerAPI:
             texts = [{"id": row[0], "sender": row[1], "title": row[2]}
                      for row in self.db.cursor.fetchall()]
 
-            # TODO: fetch texts from database
             client_socket.send(json.dumps(texts).encode('utf-8'))
 
         elif command.get("action") == "get_text_content":
@@ -189,7 +187,6 @@ class ServerAPI:
                     "nonce": text[8],  # nonce
                     "sender_public_key": sender_public_key
                 }
-            # TODO: fetch text from database
 
             if text:
                 sender_public_key = self.auth.get_client_public_key(text[1])  # text[1] is sender
