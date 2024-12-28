@@ -1,12 +1,10 @@
 import base64
-import json
 import os
 
 from Crypto.Cipher import PKCS1_OAEP
-from Crypto.Hash import SHA256
 from Crypto.PublicKey import RSA
 from Crypto.Signature import pkcs1_15
-from Crypto.Util.Padding import unpad, pad
+
 
 from Modules import Hashing
 
@@ -54,7 +52,8 @@ def get_rsa_private_key(email):
 
 def double_encrypt(data: bytes, private_key_sender: RSA.RsaKey, public_key_receiver: RSA.RsaKey) -> str:
     # Sign data first
-    h = SHA256.new(data)
+    # h = SHA256.new(data)
+    h = Hashing.hash_sha_256(data)
     signature = pkcs1_15.new(private_key_sender).sign(h)
 
     # Combine signature and data
@@ -93,7 +92,8 @@ def double_decrypt(encrypted_data: str, private_key_receiver: RSA.RsaKey, public
     signature = decrypted_data[:256]  # First 256 bytes for 2048-bit key
     original_data = decrypted_data[256:]
 
-    h = SHA256.new(original_data)
+    # h = SHA256.new(original_data)
+    h = Hashing.hash_sha_256(original_data)
     try:
         pkcs1_15.new(public_key_sender).verify(h, signature)
         return original_data

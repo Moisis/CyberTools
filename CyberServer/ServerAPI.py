@@ -11,6 +11,8 @@ from Modules import Hashing, KeyManagement, AES
 from Modules.Authentication import ServerAuth
 
 
+
+
 class ServerAPI:
     def __init__(self, host="127.0.0.1", port=12345):
         """
@@ -25,6 +27,8 @@ class ServerAPI:
         self.client_connected = False
         self.clients = {}
         self.client_session_keys = {}
+        self.db = self.auth.db
+        self.init_texts_table()
         try:
             # Create a socket object
             self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -42,12 +46,35 @@ class ServerAPI:
         except socket.error as e:
             print(f"socket error during init: {e}")
 
+    def init_texts_table(self):
+        """Initialize the texts table in PostgreSQL."""
+        try:
+            print('initializing texts table')
+            create_table_query = """
+               CREATE TABLE IF NOT EXISTS texts (
+                   id SERIAL PRIMARY KEY,
+                   sender VARCHAR(255) NOT NULL,
+                   recipient VARCHAR(255) NOT NULL,
+                   title VARCHAR(255) NOT NULL,
+                   encrypted_text TEXT NOT NULL,
+                   text_hash TEXT NOT NULL,
+                   encrypted_key TEXT NOT NULL,
+                   tag TEXT NOT NULL,
+                   nonce TEXT NOT NULL,
+                   timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+               );"""
+            self.db.cursor.execute(create_table_query)
+            self.db.connection.commit()
+            print("Texts table initialized successfully.")
+        except Exception as e:
+            print(f"Error initializing texts table: {e}")
+
     def handle_client(self, client_socket, client_address):
         """Handle communication with a connected client."""
         print(f"Client {client_address} connected.")
         try:
             while True:
-                data = client_socket.recv(1024).decode('utf-8')
+                data = client_socket.recv(8192).decode('utf-8')
                 if data:
                     print(f"Received from {client_address}: {data}")
                     self.handle_user_command(data, client_socket)
@@ -89,53 +116,184 @@ class ServerAPI:
             else:
                 print('sending failure message')
                 client_socket.send("failed".encode('utf-8'))
+        elif command.get("action") == "get_public_key":
+            username = command.get("username")
+            public_key = self.auth.get_client_public_key(username)
+            if public_key:
+                # Get requester's username and session key
+                requester = dict((v, k) for k, v in self.clients.items())[client_socket]
+                session_key = self.client_session_keys[requester]
 
-        elif command.get("action") == "chat":
-            receiver = command.get("username")
-            # get the public key of the receiver
-            receiver_public_key = self.auth.get_client_public_key(receiver)
-            # get the user_name associated with this client_socket
-            user_name = dict((v, k) for k, v in self.clients.items())[client_socket]
-            # get the session key of the user
-            session_key = self.client_session_keys[user_name]
-            print('session key stored on the server:', session_key)
-            # encrypt the receiver public key with the session key
-            encrypted_receiver_public_key, tag, nonce = (AES.SymmetricEncryption(session_key).
-                                                         encrypt(receiver_public_key.encode('utf-8')))
-            # send the encrypted receiver public key along with tag and nonce to the client
-            client_socket.send(f"{encrypted_receiver_public_key.hex()} {tag.hex()} {nonce.hex()}".encode('utf-8'))
-            # receive the chat session key from the client
-            encrypted_chat_session_key = client_socket.recv(1024).decode('utf-8')
-            # send the chat session key to the receiver along with the sender's name and the sender's
-            # public key encrypted with the session key of the receiver
-            receiver_socket = self.clients[receiver]
-            receiver_session_key = self.client_session_keys[receiver]
-            # to be continued
-            # TODO: complete the chat functionality
-
-            if receiver in self.clients:
-                client_socket.send(f"connection established with {receiver}".encode('utf-8'))
-            while True:
-                msg = client_socket.recv(1024).decode()
-                if msg == ":q":
-                    self.clients[receiver].send("the opposite end terminated the chat".encode('utf-8'))
-                    break
-                self.clients[receiver].send(msg.encode('utf-8'))
-                recv_msg = self.clients[receiver].recv(1024).decode('utf-8')
-                client_socket.send(recv_msg.encode('utf_8'))
-        elif command.get("action") == "list":
-            clients_list = []
-            for key, value in self.clients.items():
-                if value != client_socket:
-                    clients_list.append(key)
-            print(clients_list)
-            print(self.clients)
-            if clients_list:
-                client_socket.send('/n'.join(clients_list).encode('utf-8'))
+                # Encrypt public key with session key
+                encrypted_key, tag, nonce = AES.SymmetricEncryption(session_key).encrypt(
+                    public_key.encode('utf-8')
+                )
+                response = f"{encrypted_key.hex()} {tag.hex()} {nonce.hex()}"
+                client_socket.send(response.encode('utf-8'))
             else:
-                client_socket.send('no one is online now, check again later'.encode('utf-8'))
+                client_socket.send("User not found".encode('utf-8'))
+
+        elif command.get("action") == "upload_text":
+            print('uploading text to database')
+            sender = dict((v, k) for k, v in self.clients.items())[client_socket]
+            insert_query = """
+                           INSERT INTO texts 
+                           (sender, recipient, title, encrypted_text, text_hash, encrypted_key, tag, nonce)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s);"""
+
+            self.db.cursor.execute(insert_query, (
+                sender,
+                command["recipient"],
+                command["title"],
+                command["encrypted_text"],
+                command["text_hash"],
+                command["encrypted_key"],
+                command["tag"],
+                command["nonce"]
+            ))
+            self.db.connection.commit()
+            # TODO: Update database with
+
+            client_socket.send("Text uploaded successfully".encode('utf-8'))
+
+        elif command.get("action") == "get_texts":
+            recipient = dict((v, k) for k, v in self.clients.items())[client_socket]
+            fetch_query = """
+                            SELECT id, sender, title 
+                            FROM texts 
+                            WHERE recipient = %s 
+                            ORDER BY timestamp DESC;"""
+
+            self.db.cursor.execute(fetch_query, (recipient,))
+            texts = [{"id": row[0], "sender": row[1], "title": row[2]}
+                     for row in self.db.cursor.fetchall()]
+
+            # TODO: fetch texts from database
+            client_socket.send(json.dumps(texts).encode('utf-8'))
+
+        elif command.get("action") == "get_text_content":
+            recipient = dict((v, k) for k, v in self.clients.items())[client_socket]
+            text_id = command["text_id"]
+            fetch_query = """
+                            SELECT * FROM texts 
+                            WHERE id = %s AND recipient = %s;"""
+            self.db.cursor.execute(fetch_query, (text_id, recipient))
+            text = self.db.cursor.fetchone()
+            if text:
+                sender_public_key = self.auth.get_client_public_key(text[1])  # text[1] is sender
+                response = {
+                    "encrypted_text": text[4],  # encrypted_text
+                    "text_hash": text[5],  # text_hash
+                    "encrypted_key": text[6],  # encrypted_key
+                    "tag": text[7],  # tag
+                    "nonce": text[8],  # nonce
+                    "sender_public_key": sender_public_key
+                }
+            # TODO: fetch text from database
+
+            if text:
+                sender_public_key = self.auth.get_client_public_key(text[1])  # text[1] is sender
+                response = {
+                    "encrypted_text": text[4],  # encrypted_text
+                    "text_hash": text[5],  # text_hash
+                    "encrypted_key": text[6],  # encrypted_key
+                    "tag": text[7],  # tag
+                    "nonce": text[8],  # nonce
+                    "sender_public_key": sender_public_key
+                }
+                client_socket.send(json.dumps(response).encode('utf-8'))
+            else:
+                client_socket.send("Text not found".encode('utf-8'))
+
+        # elif command.get("action") == "chat":
+        #     receiver = command.get("username")
+        #     initiator = dict((v, k) for k, v in self.clients.items())[client_socket]
+        #
+        #     if receiver not in self.clients:
+        #         client_socket.send(json.dumps({
+        #             "action": "error",
+        #             "message": "User is offline"
+        #         }).encode('utf-8'))
+        #         return
+        #
+        #     # Get and encrypt receiver's public key
+        #     receiver_public_key = self.auth.get_client_public_key(receiver)
+        #     initiator_session_key = self.client_session_keys[initiator]
+        #
+        #     encrypted_receiver_public_key, tag, nonce = AES.SymmetricEncryption(initiator_session_key).encrypt(
+        #         receiver_public_key.encode('utf-8')
+        #     )
+        #
+        #     print('sending encrypted public key to initiator')
+        #     # Send encrypted public key to initiator
+        #     client_socket.send(f"{encrypted_receiver_public_key.hex()} {tag.hex()} {nonce.hex()}".encode('utf-8'))
+        #
+        #     # Receive chat session key from initiator
+        #     encrypted_chat_session_key = client_socket.recv(1024).decode('utf-8')
+        #     print('received encrypted chat session key from initiator')
+        #     # Send chat request to receiver
+        #     print('sending chat request to receiver')
+        #     receiver_socket = self.clients[receiver]
+        #     initiator_public_key = self.auth.get_client_public_key(initiator)
+        #     # stop the receiver thread and handle it here
+        #     chat_request = {
+        #         "action": "receive_chat",
+        #         "from": initiator,
+        #         "chat_session_key": encrypted_chat_session_key,
+        #         "initiator_public_key": initiator_public_key
+        #     }
+        #
+        #     receiver_socket.send(json.dumps(chat_request).encode('utf-8'))
+        #
+        #     # Wait for receiver's response
+        #     response = receiver_socket.recv(1024).decode('utf-8')
+        #     print('received response from receiver at server', response)
+        #     response_data = json.loads(response)
+        #
+        #     # Forward response to initiator
+        #     client_socket.send(response.encode('utf-8'))
+        #
+        #     if response_data.get("action") == "chat_accepted":
+        #         self.handle_chat_relay(client_socket, receiver_socket, initiator, receiver)
+        #
+        # elif command.get("action") == "list":
+        #     clients_list = []
+        #     for key, value in self.clients.items():
+        #         if value != client_socket:
+        #             clients_list.append(key)
+        #     print(clients_list)
+        #     print(self.clients)
+        #     if clients_list:
+        #         client_socket.send('/n'.join(clients_list).encode('utf-8'))
+        #     else:
+        #         client_socket.send('no one is online now, check again later'.encode('utf-8'))
         else:
             print(f"Command '{command[0]}' not recognized.")
+
+    # def handle_chat_relay(self, socket1, socket2, user1, user2):
+    #     def relay_messages(from_socket, to_socket):
+    #         try:
+    #             while True:
+    #                 message = from_socket.recv(1024).decode('utf-8')
+    #                 if not message or message == ":q":
+    #                     to_socket.send(":q".encode('utf-8'))
+    #                     break
+    #                 to_socket.send(message.encode('utf-8'))
+    #         except Exception as e:
+    #             print(f"Error in chat relay: {e}")
+    #             try:
+    #                 to_socket.send(":q".encode('utf-8'))
+    #             except:
+    #                 pass
+    #
+    #     thread1 = threading.Thread(target=relay_messages, args=(socket1, socket2))
+    #     thread2 = threading.Thread(target=relay_messages, args=(socket2, socket1))
+    #
+    #     thread1.daemon = True
+    #     thread2.daemon = True
+    #
+    #     thread1.start()
+    #     thread2.start()
 
     def handle_user_registration(self, data, client_socket):
         """Handle user registration."""
@@ -195,6 +353,7 @@ class ServerAPI:
             while True:
                 client_socket, client_address = self.server_socket.accept()
                 client_thread = threading.Thread(target=self.handle_client, args=(client_socket, client_address))
+                # save the client thread
                 client_thread.start()
         except KeyboardInterrupt:
             print("\nShutting down the server...")

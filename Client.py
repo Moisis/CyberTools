@@ -1,5 +1,7 @@
 import json
 import socket
+import threading
+import time
 
 from Crypto.PublicKey import RSA
 
@@ -8,12 +10,114 @@ from Modules import KeyManagement
 import Modules.Hashing as Hashing
 from Modules.Authentication import ClientAuth
 
+#
+# class MessageListener(threading.Thread):
+#     def __init__(self, client_socket, session_key):
+#         super().__init__()
+#         self.client_socket = client_socket
+#         self.session_key = session_key
+#         self.chat_active = False
+#         self.chat_session_key = None
+#         self.daemon = True  # Thread will exit when main program exits
+#
+#     def run(self):
+#         while True:
+#             try:
+#                 print("Waiting for messages...")
+#                 # make a non blocking call to receive messages
+#                 data = self.client_socket.recv(4096).decode('utf-8')
+#                 print('received data:', data)
+#                 if not data:
+#                     # sleep for 2 seconds before trying again
+#                     print('sleeping for 2 seconds')
+#                     time.sleep(2)
+#                     print('waking up')
+#                 else:
+#                     # print(f"Received: {data}")
+#                     with open('debug.txt', 'w') as file:
+#                         file.write(data)
+#                     try:
+#                         # Try to parse as JSON first
+#                         message = json.loads(data)
+#                         print(f"Message: {message}")
+#                         if message.get("action") == "receive_chat":
+#                             print('calling handle_incoming_chat')
+#                             self.handle_incoming_chat(message)
+#                     except json.JSONDecodeError:
+#                         print('the error is' + str(json.JSONDecodeError))
+#                         # If it's not JSON, it might be encrypted chat data
+#                         if self.chat_active:
+#                             self.handle_chat_message(data)
+#             except Exception as e:
+#                 print(f"Error in message listener: {e}")
+#                 break
+#
+#     def handle_incoming_chat(self, message):
+#         print(f"\nIncoming chat request from {message['from']}")
+#         choice = input("Accept chat? (y/n): ")
+#
+#         if choice.lower() == 'y':
+#             # Decrypt the chat session key
+#             encrypted_chat_session_key = message["chat_session_key"]
+#             initiator_public_key = message["initiator_public_key"]
+#
+#             self.chat_session_key = KeyManagement.double_decrypt(
+#                 encrypted_chat_session_key,
+#                 KeyManagement.get_rsa_private_key(f'{user}@gmail.com'),
+#                 RSA.import_key(initiator_public_key)
+#             )
+#
+#             # Send acceptance
+#             self.client_socket.send(json.dumps({
+#                 "action": "chat_accepted",
+#                 "to": message["from"]
+#             }).encode('utf-8'))
+#
+#             self.chat_active = True
+#             self.start_chat()
+#         else:
+#             self.client_socket.send(json.dumps({
+#                 "action": "chat_rejected",
+#                 "to": message["from"]
+#             }).encode('utf-8'))
+#
+#     def handle_chat_message(self, encrypted_message):
+#         if encrypted_message == ":q":
+#             print("\nChat ended by other party")
+#             self.chat_active = False
+#             return
+#
+#         # Here you would decrypt the message using chat_session_key
+#         print(f"\nThem: {encrypted_message}")
+#         print("You: ", end='', flush=True)
+#
+#     def start_chat(self):
+#         def send_messages():
+#             while self.chat_active:
+#                 try:
+#                     message = input("You: ")
+#                     if message == ":q":
+#                         self.chat_active = False
+#                         self.client_socket.send(":q".encode('utf-8'))
+#                         break
+#                     # Here you would encrypt the message using chat_session_key
+#                     self.client_socket.send(message.encode('utf-8'))
+#                 except Exception as e:
+#                     print(f"Error sending message: {e}")
+#                     break
+#
+#         # Start sending thread
+#         send_thread = threading.Thread(target=send_messages)
+#         send_thread.daemon = True
+#         send_thread.start()
+#
+
 States = {
     "Main": ["Register", "Auth"],
     "Register": ["Main"],
-    "Auth": ["Show list of online people", "Main"],
-    "Show list of online people": ["Chat", "Back"],
-    "Chat": []
+    "Auth": ["Upload Text", "Pull Texts", "Main"],
+    "Upload Text": ["Upload Text", "Pull Texts", "Main"],
+    "Pull Texts": ["Upload Text", "Pull Texts", "Main"]
 }
 state = "Main"
 user = None
@@ -22,6 +126,134 @@ client_socket = None
 session_key_with_server = None
 
 
+def upload_text():
+    if not user or not session_key_with_server:
+        print("Please authenticate first")
+        return
+
+    recipient = input("Enter recipient username: ").strip()
+    if not recipient:
+        print("Recipient cannot be empty")
+        return
+
+    # Request recipient's public key from server
+    command_data = {
+        "action": "get_public_key",
+        "username": recipient
+    }
+    client_socket.send(json.dumps(command_data).encode('utf-8'))
+
+    # Receive encrypted public key
+    encrypted_data = client_socket.recv(1024).decode('utf-8')
+    encrypted_key, tag, nonce = encrypted_data.split()
+    encrypted_key = bytes.fromhex(encrypted_key)
+    tag = bytes.fromhex(tag)
+    nonce = bytes.fromhex(nonce)
+
+    # Decrypt using session key
+    recipient_public_key = AES.SymmetricEncryption(session_key_with_server).decrypt(encrypted_key, tag, nonce)
+
+    # Get text from user
+    title = input("Enter text title: ").strip()
+    content = input("Enter text content: ").strip()
+
+    # Generate AES key for text encryption
+    text_key = AES.SymmetricEncryption().key
+
+    # Encrypt text
+    encrypted_text, tag, nonce = AES.SymmetricEncryption(text_key).encrypt(content.encode('utf-8'))
+
+    # Hash original text
+    text_hash = Hashing.hash_data(content.encode('utf-8'))
+
+    # Encrypt and sign the AES key
+    recipient_public_key_obj = RSA.import_key(recipient_public_key)
+    sender_private_key = KeyManagement.get_rsa_private_key(f'{user}@gmail.com')
+    encrypted_key = KeyManagement.double_encrypt(text_key, sender_private_key, recipient_public_key_obj)
+
+    # Send to server
+    command_data = {
+        "action": "upload_text",
+        "recipient": recipient,
+        "title": title,
+        "encrypted_text": encrypted_text.hex(),
+        "text_hash": text_hash,
+        "encrypted_key": encrypted_key,
+        "tag": tag.hex(),
+        "nonce": nonce.hex()
+    }
+    client_socket.send(json.dumps(command_data).encode('utf-8'))
+
+    response = client_socket.recv(1024).decode('utf-8')
+    print(response)
+
+
+def pull_texts():
+    if not user or not session_key_with_server:
+        print("Please authenticate first")
+        return
+
+    # Request list of texts
+    command_data = {
+        "action": "get_texts"
+    }
+    client_socket.send(json.dumps(command_data).encode('utf-8'))
+
+    # Receive list of texts
+    response = client_socket.recv(8192).decode('utf-8')
+    texts = json.loads(response)
+
+    if not texts:
+        print("No texts available")
+        return
+
+    print("\nAvailable texts:")
+    for i, text in enumerate(texts):
+        print(f"{i + 1}: {text['title']} (from: {text['sender']})")
+
+    choice = input("\nEnter number to read (or 0 to cancel): ")
+    if choice == "0" or not choice.isdigit() or int(choice) > len(texts):
+        return
+
+    selected = texts[int(choice) - 1]
+
+    # Request specific text
+    command_data = {
+        "action": "get_text_content",
+        "text_id": selected["id"]
+    }
+    client_socket.send(json.dumps(command_data).encode('utf-8'))
+
+    # Receive encrypted text
+    response = json.loads(client_socket.recv(4096).decode('utf-8'))
+
+    # Decrypt the symmetric key using private key
+    encrypted_key = response["encrypted_key"]
+    sender_public_key = RSA.import_key(response["sender_public_key"])
+    receiver_private_key = KeyManagement.get_rsa_private_key(f'{user}@gmail.com')
+
+    symmetric_key = KeyManagement.double_decrypt(
+        encrypted_key,
+        receiver_private_key,
+        sender_public_key
+    )
+
+    # Decrypt the text
+    encrypted_text = bytes.fromhex(response["encrypted_text"])
+    tag = bytes.fromhex(response["tag"])
+    nonce = bytes.fromhex(response["nonce"])
+
+    decrypted_text = AES.SymmetricEncryption(symmetric_key).decrypt(encrypted_text, tag, nonce)
+
+    # Verify hash
+    calculated_hash = Hashing.hash_data(decrypted_text)
+    if calculated_hash != response["text_hash"]:
+        print("Warning: Text integrity check failed!")
+        return
+
+    print(f"\nTitle: {selected['title']}")
+    print(f"From: {selected['sender']}")
+    print(f"Content: {decrypted_text.decode('utf-8')}")
 def execute(action):
     global user
     global state
@@ -132,48 +364,10 @@ def execute(action):
         print(client_socket.recv(1024).decode('utf-8'))
     elif action == "Back":
         state = "Auth"
-    elif action == "Chat":
-        username = input("Enter username you want to chat with:").strip()
-        if not username:
-            print("Username cannot be empty")
-            state = "Show list of online people"
-            return
-        command_data = {
-            "action": "chat",
-            "username": username
-        }
-        client_socket.send(json.dumps(command_data).encode('utf-8'))
-        # receive the receiver public key encrypted with the session key
-        data = client_socket.recv(1024).decode('utf-8')
-        data = data.split()
-        nonce = bytes.fromhex(data[2])
-        tag = bytes.fromhex(data[1])
-        encrypted_receiver_public_key = bytes.fromhex(data[0])
-        print('session key with server:', session_key_with_server)
-        receiver_public_key = AES.SymmetricEncryption(session_key_with_server).decrypt(encrypted_receiver_public_key,
-                                                                                       tag, nonce)
-        print(f"Receiver public key: {receiver_public_key.decode('utf-8')}")
-        # generate a new session key for the chat
-        chat_session_key = AES.SymmetricEncryption().key
-        # sign the chat session key with the user's private key and encrypt it with the receiver's public key
-        encrypted_chat_session_key = KeyManagement.double_encrypt(
-            chat_session_key, KeyManagement.get_rsa_private_key(f'{username}@gmail.com'),
-            RSA.import_key(receiver_public_key.decode('utf-8')))
-        # send the encrypted chat session key to the server
-        client_socket.send(encrypted_chat_session_key.encode('utf-8'))
-        print("type :q if you want to exit")
-        while True:
-            msg = input("Enter your message:")
-            client_socket.send(msg.encode('utf-8'))
-            if msg == ":q":
-                break
-            print("Waiting for response....")
-            recv_msg = client_socket.recv(1024).decode('utf-8')
-            if recv_msg == ":q":
-                print("the opposite end terminated the chat".encode('utf-8'))
-                break
-            print(recv_msg)
-
+    elif action == "Upload Text":
+        upload_text()
+    elif action == "Pull Texts":
+        pull_texts()
     elif action == "Exit":
         command_data = {
             "action": "exit",

@@ -85,3 +85,52 @@ class PostgresDB:
         except psycopg2.Error as e:
             print(f"Error fetching client public key: {e}")
             return None
+
+    def insert_text(self, sender, recipient, title, encrypted_text, text_hash, encrypted_key, tag, nonce):
+        """Insert a new text message into the 'texts' table."""
+        try:
+            insert_query = """
+            INSERT INTO texts 
+            (sender, recipient, title, encrypted_text, text_hash, encrypted_key, tag, nonce)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id;"""
+
+            self.cursor.execute(insert_query, (
+                sender, recipient, title, encrypted_text,
+                text_hash, encrypted_key, tag, nonce
+            ))
+            text_id = self.cursor.fetchone()[0]
+            self.connection.commit()
+            return text_id
+        except psycopg2.Error as e:
+            print(f"Error inserting text: {e}")
+            return None
+
+    def get_texts_for_user(self, recipient):
+        """Fetch all texts for a specific recipient."""
+        try:
+            fetch_query = """
+            SELECT id, sender, title 
+            FROM texts 
+            WHERE recipient = %s 
+            ORDER BY timestamp DESC;"""
+
+            self.cursor.execute(fetch_query, (recipient,))
+            return self.cursor.fetchall()
+        except psycopg2.Error as e:
+            print(f"Error fetching texts for user: {e}")
+            return []
+
+    def get_text_content(self, text_id, recipient):
+        """Fetch the content of a specific text message."""
+        try:
+            fetch_query = """
+            SELECT sender, encrypted_text, text_hash, encrypted_key, tag, nonce 
+            FROM texts 
+            WHERE id = %s AND recipient = %s;"""
+
+            self.cursor.execute(fetch_query, (text_id, recipient))
+            return self.cursor.fetchone()
+        except psycopg2.Error as e:
+            print(f"Error fetching text content: {e}")
+            return None
