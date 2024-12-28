@@ -41,15 +41,13 @@ class ServerAuth:
 			nonce = bytes.fromhex(response.split()[2])
 			if self.verify_authentication_challenge(user_name, challenge, answer, nonce):
 				print("Authentication successful.")
-				client_socket.send("Authentication successful".encode('utf-8'))
 				return True
 			else:
 				print("Authentication failed.")
-				client_socket.send("Authentication failed".encode('utf-8'))
 				return False
 		else:
 			print("Authentication failed.")
-			client_socket.send("Authentication failed.".encode('utf-8'))
+			return False
 
 	def get_authentication_challenge(self, username):
 		"""
@@ -99,6 +97,10 @@ class ServerAuth:
 			print(f"Error during decryption: {e}")
 			return False
 
+	def get_client_public_key(self, username):
+		"""Get the public key of a client from the database."""
+		return self.db.get_client_public_key(username)
+
 	def close(self):
 		"""Close the database connection."""
 		self.db.close()
@@ -106,8 +108,13 @@ class ServerAuth:
 
 class ClientAuth:
 	@staticmethod
-	def authenticate_user(username, password, client_socket):
-		"""Authenticate a user by sending the username and password to the server."""
+	def authenticate_user(username, password, client_socket) -> str:
+		"""
+		Authenticate a user by sending the username and password to the server.
+
+		:returns symmetric key if authentication is successful, "failed" otherwise
+		"""
+
 		command_data = {
 			"action": "authenticate",
 			"username": username
@@ -134,10 +141,10 @@ class ClientAuth:
 			# Receive authentication result
 			auth_result = client_socket.recv(1024).decode('utf-8')
 			print(f"Server response: {auth_result}")
-			return auth_result.split()[1] == "successful"
+			return auth_result
 		else:
 			print("Failed to receive challenge or invalid response from server.")
-			return False
+			return "failed"
 
 	@staticmethod
 	def get_device_identifier():

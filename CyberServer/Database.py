@@ -74,3 +74,14 @@ class PostgresDB:
         if self.connection:
             self.connection.close()
         print("Database connection closed.")
+
+    def get_client_public_key(self, username):
+        """Fetch the public key of a client from the database."""
+        try:
+            fetch_query = "SELECT public_key FROM users WHERE username = %s;"
+            self.cursor.execute(fetch_query, (username,))
+            public_key = self.cursor.fetchone()
+            return public_key[0] if public_key else None
+        except psycopg2.Error as e:
+            print(f"Error fetching client public key: {e}")
+            return None

@@ -7,7 +7,7 @@ import threading
 from Crypto.PublicKey import RSA
 
 from CyberServer import EmailSender
-from Modules import Hashing, KeyManagement
+from Modules import Hashing, KeyManagement, AES
 from Modules.Authentication import ServerAuth
 
 
@@ -24,6 +24,7 @@ class ServerAPI:
         self.auth = ServerAuth()
         self.client_connected = False
         self.clients = {}
+        self.client_session_keys = {}
         try:
             # Create a socket object
             self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -61,6 +62,7 @@ class ServerAPI:
         if command.get("action") == "exit":
             res = dict((v, k) for k, v in self.clients.items())
             del self.clients[res[client_socket]]
+            del self.client_session_keys[res[client_socket]]
             print(f"client {res[client_socket]} closed")
         elif command.get("action") == "register":
             self.handle_user_registration(data, client_socket)
@@ -68,18 +70,58 @@ class ServerAPI:
             user_name = command.get("username")
             # Authenticate a user
             if ServerAuth().authenticate_user(client_socket, user_name):
+                print('generating session key')
+                # generate a session key
+                session_key = AES.SymmetricEncryption().key
+                # get the client public key from the database
+                client_public_key = self.auth.get_client_public_key(user_name)
+                # sign the session key with the server private key then encrypt it with the client public key
+                server_private_key = KeyManagement.get_rsa_private_key('server@secure.org')
+                client_public_key_obj = RSA.import_key(client_public_key)
+                encrypted_session_key = KeyManagement.double_encrypt(session_key, server_private_key,
+                                                                     client_public_key_obj)
+                # send the encrypted session key to the client
+                client_socket.send(encrypted_session_key.encode('utf-8'))
+                # add the session key to the clients dictionary
+                self.client_session_keys[user_name] = session_key
                 self.clients[user_name] = client_socket
+                print('session key sent', session_key)
+            else:
+                print('sending failure message')
+                client_socket.send("failed".encode('utf-8'))
+
         elif command.get("action") == "chat":
-            reciever = command.get("username")
-            if reciever in self.clients:
-                client_socket.send(f"connection established with {reciever}".encode('utf-8'))
+            receiver = command.get("username")
+            # get the public key of the receiver
+            receiver_public_key = self.auth.get_client_public_key(receiver)
+            # get the user_name associated with this client_socket
+            user_name = dict((v, k) for k, v in self.clients.items())[client_socket]
+            # get the session key of the user
+            session_key = self.client_session_keys[user_name]
+            print('session key stored on the server:', session_key)
+            # encrypt the receiver public key with the session key
+            encrypted_receiver_public_key, tag, nonce = (AES.SymmetricEncryption(session_key).
+                                                         encrypt(receiver_public_key.encode('utf-8')))
+            # send the encrypted receiver public key along with tag and nonce to the client
+            client_socket.send(f"{encrypted_receiver_public_key.hex()} {tag.hex()} {nonce.hex()}".encode('utf-8'))
+            # receive the chat session key from the client
+            encrypted_chat_session_key = client_socket.recv(1024).decode('utf-8')
+            # send the chat session key to the receiver along with the sender's name and the sender's
+            # public key encrypted with the session key of the receiver
+            receiver_socket = self.clients[receiver]
+            receiver_session_key = self.client_session_keys[receiver]
+            # to be continued
+            # TODO: complete the chat functionality
+
+            if receiver in self.clients:
+                client_socket.send(f"connection established with {receiver}".encode('utf-8'))
             while True:
                 msg = client_socket.recv(1024).decode()
                 if msg == ":q":
-                    self.clients[reciever].send("the opposite end terminated the chat".encode('utf-8'))
+                    self.clients[receiver].send("the opposite end terminated the chat".encode('utf-8'))
                     break
-                self.clients[reciever].send(msg.encode('utf-8'))
-                recv_msg = self.clients[reciever].recv(1024).decode('utf-8')
+                self.clients[receiver].send(msg.encode('utf-8'))
+                recv_msg = self.clients[receiver].recv(1024).decode('utf-8')
                 client_socket.send(recv_msg.encode('utf_8'))
         elif command.get("action") == "list":
             clients_list = []

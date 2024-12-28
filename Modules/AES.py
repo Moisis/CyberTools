@@ -3,11 +3,16 @@ from Crypto.Random import get_random_bytes
 
 
 class SymmetricEncryption:
-    def __init__(self, key=get_random_bytes(16)):
-        self.key = key
+    def __init__(self, key=None):
+        if key:
+            self.key = key
+        else:
+            self.key = get_random_bytes(16)
         self.cipher = AES.new(self.key, AES.MODE_EAX)
 
     def encrypt(self, plaintext):
+        self.cipher = AES.new(self.key, AES.MODE_EAX)  # to make new nonce
+        print(self.cipher.nonce)
         ciphertext, tag = self.cipher.encrypt_and_digest(plaintext)
         return ciphertext, tag, self.cipher.nonce
 

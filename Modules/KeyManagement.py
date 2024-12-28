@@ -52,13 +52,6 @@ def get_rsa_private_key(email):
         return generate_rsa_key_pair(email)[0]
 
 
-def split_data(data: bytes, chunk_size: int) -> list:
-    """
-    Split data into chunks suitable for RSA encryption.
-    """
-    return [data[i:i + chunk_size] for i in range(0, len(data), chunk_size)]
-
-
 def double_encrypt(data: bytes, private_key_sender: RSA.RsaKey, public_key_receiver: RSA.RsaKey) -> str:
     # Sign data first
     h = SHA256.new(data)
@@ -106,3 +99,6 @@ def double_decrypt(encrypted_data: str, private_key_receiver: RSA.RsaKey, public
         return original_data
     except (ValueError, TypeError):
         raise ValueError("Signature verification failed")
+
+def generate_symmetric_session_key():
+    return os.urandom(16)

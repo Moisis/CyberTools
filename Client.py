@@ -1,6 +1,8 @@
 import json
 import socket
 
+from Crypto.PublicKey import RSA
+
 import Modules.AES as AES
 from Modules import KeyManagement
 import Modules.Hashing as Hashing
@@ -17,12 +19,15 @@ state = "Main"
 user = None
 connected = False
 client_socket = None
+session_key_with_server = None
+
 
 def execute(action):
     global user
     global state
     global connected
     global client_socket
+    global session_key_with_server
     server_host = "127.0.0.1"  # Server host
     server_port = 12345  # Server port
 
@@ -46,9 +51,9 @@ def execute(action):
             return
         email = input("Enter email: ").strip()
         if not email:
-          print("Email cannot be empty")
-          state = "Main"
-          return
+            print("Email cannot be empty")
+            state = "Main"
+            return
         password = input("Enter password: ").strip()
         if not password:
             print("Password cannot be empty")
@@ -105,7 +110,12 @@ def execute(action):
             state = "Main"
             return
         authentication_status = ClientAuth.authenticate_user(username, password, client_socket)
-        if authentication_status:
+        if authentication_status != "failed":
+            session_key = KeyManagement.double_decrypt(authentication_status,
+                                                       KeyManagement.get_rsa_private_key(f'{username}@gmail.com'),
+                                                       KeyManagement.get_rsa_public_key('server@secure.org'))
+            session_key_with_server = session_key
+            print('session key with server:', session_key_with_server)
             user = username
             print("Authentication successful.")
             print(f"Welcome {username}")
@@ -133,6 +143,24 @@ def execute(action):
             "username": username
         }
         client_socket.send(json.dumps(command_data).encode('utf-8'))
+        # receive the receiver public key encrypted with the session key
+        data = client_socket.recv(1024).decode('utf-8')
+        data = data.split()
+        nonce = bytes.fromhex(data[2])
+        tag = bytes.fromhex(data[1])
+        encrypted_receiver_public_key = bytes.fromhex(data[0])
+        print('session key with server:', session_key_with_server)
+        receiver_public_key = AES.SymmetricEncryption(session_key_with_server).decrypt(encrypted_receiver_public_key,
+                                                                                       tag, nonce)
+        print(f"Receiver public key: {receiver_public_key.decode('utf-8')}")
+        # generate a new session key for the chat
+        chat_session_key = AES.SymmetricEncryption().key
+        # sign the chat session key with the user's private key and encrypt it with the receiver's public key
+        encrypted_chat_session_key = KeyManagement.double_encrypt(
+            chat_session_key, KeyManagement.get_rsa_private_key(f'{username}@gmail.com'),
+            RSA.import_key(receiver_public_key.decode('utf-8')))
+        # send the encrypted chat session key to the server
+        client_socket.send(encrypted_chat_session_key.encode('utf-8'))
         print("type :q if you want to exit")
         while True:
             msg = input("Enter your message:")
